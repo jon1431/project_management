@@ -88,7 +88,12 @@ export const signInAnonymously = async (): Promise<ApiResponse<User>> => {
     return {
       success: true,
       data: {
-        ...userData,
+        uid: userData.uid,
+        email: userData.email || null,
+        displayName: userData.displayName || null,
+        isAnonymous: userData.isAnonymous,
+        role: userData.role,
+        reportsCount: userData.reportsCount,
         createdAt: Timestamp.now(),
         lastActive: Timestamp.now()
       },
@@ -171,7 +176,12 @@ export const createAccount = async (
     return {
       success: true,
       data: {
-        ...userData,
+        uid: userData.uid,
+        email: userData.email || null,
+        displayName: userData.displayName || null,
+        isAnonymous: userData.isAnonymous,
+        role: userData.role,
+        reportsCount: userData.reportsCount,
         createdAt: Timestamp.now(),
         lastActive: Timestamp.now()
       },

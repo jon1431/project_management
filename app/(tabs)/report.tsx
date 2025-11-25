@@ -48,7 +48,7 @@ export default function ReportScreen() {
         const result = await submitReport({
             title: title.trim(),
             description: description.trim(),
-            category: categoryLower,
+            category: categoryLower as any,
             location: location.trim() || undefined,
             isAnonymous,
         });

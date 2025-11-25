@@ -109,7 +109,7 @@ export default function HomeScreen() {
         // Handle Firestore Timestamp
         const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
         const now = new Date();
-        const diff = now - date;
+        const diff = now.getTime() - date.getTime();
         const seconds = Math.floor(diff / 1000);
         const minutes = Math.floor(seconds / 60);
         const hours = Math.floor(minutes / 60);
