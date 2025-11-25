@@ -35,23 +35,17 @@ export default function SignUpScreen() {
             const result = await createAccount(email, password, displayName || undefined);
 
             if (result.success) {
-                Alert.alert(
-                    "Success",
-                    "Account created successfully! You can now log in.",
-                    [
-                        {
-                            text: "OK",
-                            onPress: () => router.replace("/(tabs)/home")
-                        }
-                    ]
-                );
+                // Wait a moment for Firebase auth state to update
+                setTimeout(() => {
+                    router.replace("/(tabs)/home");
+                }, 500);
             } else {
                 Alert.alert("Sign Up Failed", result.error || "Failed to create account. Please try again.");
+                setLoading(false);
             }
         } catch (error) {
             console.error("Error creating account:", error);
             Alert.alert("Error", "An unexpected error occurred. Please try again.");
-        } finally {
             setLoading(false);
         }
     };

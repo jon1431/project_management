@@ -18,25 +18,43 @@ export default function LoginScreen() {
         }
 
         setLoading(true);
-        const result = await signInWithEmail(email, password);
-        setLoading(false);
+        try {
+            const result = await signInWithEmail(email, password);
 
-        if (result.success) {
-            router.replace("/(tabs)/home");
-        } else {
-            Alert.alert("Login Failed", result.error || "Failed to sign in. Please try again.");
+            if (result.success) {
+                // Wait a moment for Firebase auth state to update
+                setTimeout(() => {
+                    router.replace("/(tabs)/home");
+                }, 500);
+            } else {
+                Alert.alert("Login Failed", result.error || "Failed to sign in. Please try again.");
+                setLoading(false);
+            }
+        } catch (error) {
+            console.error("Login error:", error);
+            Alert.alert("Error", "An unexpected error occurred. Please try again.");
+            setLoading(false);
         }
     };
 
     const handleAnonymousLogin = async () => {
         setAnonymousLoading(true);
-        const result = await signInAnonymously();
-        setAnonymousLoading(false);
+        try {
+            const result = await signInAnonymously();
 
-        if (result.success) {
-            router.replace("/(tabs)/home");
-        } else {
-            Alert.alert("Error", result.error || "Failed to sign in anonymously. Please try again.");
+            if (result.success) {
+                // Wait a moment for Firebase auth state to update
+                setTimeout(() => {
+                    router.replace("/(tabs)/home");
+                }, 500);
+            } else {
+                Alert.alert("Error", result.error || "Failed to sign in anonymously. Please try again.");
+                setAnonymousLoading(false);
+            }
+        } catch (error) {
+            console.error("Anonymous login error:", error);
+            Alert.alert("Error", "An unexpected error occurred. Please try again.");
+            setAnonymousLoading(false);
         }
     };
 
