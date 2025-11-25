@@ -1,0 +1,288 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================================
+    // HELPER FUNCTIONS
+    // ============================================================================
+
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user is the owner of the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Check if user has moderator role (set via custom claims)
+    function isModerator() {
+      return isAuthenticated() &&
+             request.auth.token.role == 'moderator';
+    }
+
+    // Check if user has admin role
+    function isAdmin() {
+      return isAuthenticated() &&
+             request.auth.token.role == 'admin';
+    }
+
+    // Check if data contains required fields
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Validate string length
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+             request.resource.data[field].size() >= minLen &&
+             request.resource.data[field].size() <= maxLen;
+    }
+
+    // Check if report status is valid
+    function validReportStatus(status) {
+      return status in ['pending', 'under_review', 'verified', 'rejected', 'resolved'];
+    }
+
+    // Check if only specific fields are being updated
+    function onlyUpdatingFields(allowedFields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedFields);
+    }
+
+
+    // ============================================================================
+    // USERS COLLECTION
+    // ============================================================================
+
+    match /users/{userId} {
+      // Users can read their own document
+      allow read: if isOwner(userId);
+
+      // Moderators and admins can read any user document
+      allow read: if isModerator() || isAdmin();
+
+      // Users can create their own document (during signup)
+      allow create: if isOwner(userId) &&
+                      hasRequiredFields(['uid', 'isAnonymous', 'role', 'createdAt', 'reportsCount']) &&
+                      request.resource.data.uid == userId &&
+                      request.resource.data.role == 'user' && // Cannot self-assign moderator/admin
+                      request.resource.data.reportsCount == 0;
+
+      // Users can update their own profile (limited fields)
+      allow update: if isOwner(userId) &&
+                      onlyUpdatingFields(['displayName', 'lastActive']) &&
+                      // Cannot change role, uid, isAnonymous after creation
+                      request.resource.data.role == resource.data.role &&
+                      request.resource.data.uid == resource.data.uid &&
+                      request.resource.data.isAnonymous == resource.data.isAnonymous;
+
+      // Admins can update user roles
+      allow update: if isAdmin() &&
+                      onlyUpdatingFields(['role']);
+
+      // Users cannot delete their own profile (privacy: reports remain)
+      allow delete: if false;
+
+      // Admins can delete user profiles
+      allow delete: if isAdmin();
+    }
+
+
+    // ============================================================================
+    // REPORTS COLLECTION - CRITICAL FOR PRIVACY AND SECURITY (SDG 16)
+    // ============================================================================
+
+    match /reports/{reportId} {
+
+      // --- READ RULES ---
+
+      // Public can read ONLY verified reports that are marked as public visibility
+      allow read: if resource.data.status == 'verified' &&
+                    resource.data.visibility == 'public';
+
+      // Users can read their own reports (any status)
+      allow read: if isAuthenticated() &&
+                    isOwner(resource.data.authorId);
+
+      // Moderators and admins can read all reports
+      allow read: if isModerator() || isAdmin();
+
+
+      // --- CREATE RULES ---
+
+      // Authenticated users can create reports
+      allow create: if isAuthenticated() &&
+                      // Required fields validation
+                      hasRequiredFields([
+                        'title', 'description', 'category', 'authorId',
+                        'isAnonymous', 'status', 'visibility',
+                        'upvotes', 'viewCount', 'createdAt', 'updatedAt'
+                      ]) &&
+                      // Author must be the authenticated user
+                      request.resource.data.authorId == request.auth.uid &&
+                      // Initial status must be 'pending'
+                      request.resource.data.status == 'pending' &&
+                      // Initial visibility must be 'private'
+                      request.resource.data.visibility == 'private' &&
+                      // Initial counters must be 0
+                      request.resource.data.upvotes == 0 &&
+                      request.resource.data.viewCount == 0 &&
+                      // Validate string lengths
+                      validStringLength('title', 5, 200) &&
+                      validStringLength('description', 20, 5000) &&
+                      // Validate category
+                      request.resource.data.category in ['corruption', 'abuse', 'discrimination', 'violence', 'other'] &&
+                      // Cannot set moderator fields on creation
+                      !('moderatorId' in request.resource.data) &&
+                      !('moderatorNotes' in request.resource.data) &&
+                      !('verifiedAt' in request.resource.data);
+
+
+      // --- UPDATE RULES ---
+
+      // Authors can update their own pending reports (before moderation)
+      allow update: if isAuthenticated() &&
+                      isOwner(resource.data.authorId) &&
+                      resource.data.status == 'pending' &&
+                      // Can only update content fields, not status or metadata
+                      onlyUpdatingFields(['title', 'description', 'category', 'location', 'locationCoords', 'mediaUrls', 'tags', 'updatedAt']) &&
+                      // Cannot change to verified status
+                      request.resource.data.status == 'pending' &&
+                      request.resource.data.visibility == 'private';
+
+      // Moderators can update report status and moderation fields
+      allow update: if isModerator() &&
+                      // Can update status, visibility, and moderation fields
+                      validReportStatus(request.resource.data.status) &&
+                      // If status is changed to 'verified', visibility can be 'public'
+                      (request.resource.data.status == 'verified' ?
+                        request.resource.data.visibility in ['public', 'private'] :
+                        request.resource.data.visibility == 'private') &&
+                      // Must set moderatorId when updating
+                      request.resource.data.moderatorId == request.auth.uid &&
+                      // Cannot change authorId or creation metadata
+                      request.resource.data.authorId == resource.data.authorId &&
+                      request.resource.data.createdAt == resource.data.createdAt;
+
+      // Users can increment view count (public verified reports only)
+      allow update: if isAuthenticated() &&
+                      resource.data.status == 'verified' &&
+                      resource.data.visibility == 'public' &&
+                      onlyUpdatingFields(['viewCount']) &&
+                      request.resource.data.viewCount == resource.data.viewCount + 1;
+
+
+      // --- DELETE RULES ---
+
+      // Authors can delete their own pending reports
+      allow delete: if isAuthenticated() &&
+                      isOwner(resource.data.authorId) &&
+                      resource.data.status == 'pending';
+
+      // Moderators and admins can delete any report
+      allow delete: if isModerator() || isAdmin();
+    }
+
+
+    // ============================================================================
+    // RESOURCES COLLECTION (Educational Content)
+    // ============================================================================
+
+    match /resources/{resourceId} {
+
+      // Anyone can read published resources (even unauthenticated for public good)
+      allow read: if resource.data.isPublished == true;
+
+      // Moderators and admins can read unpublished resources
+      allow read: if isModerator() || isAdmin();
+
+      // Only admins can create resources
+      allow create: if isAdmin() &&
+                      hasRequiredFields([
+                        'title', 'description', 'category', 'type',
+                        'language', 'isPublished', 'priority',
+                        'viewCount', 'createdAt', 'updatedAt'
+                      ]) &&
+                      validStringLength('title', 5, 200) &&
+                      request.resource.data.category in ['legal_rights', 'safety', 'reporting_guide', 'support', 'general'] &&
+                      request.resource.data.type in ['article', 'video', 'guide', 'external_link', 'hotline'] &&
+                      request.resource.data.viewCount == 0;
+
+      // Admins and moderators can update resources
+      allow update: if isAdmin() || isModerator();
+
+      // Users can increment view count
+      allow update: if resource.data.isPublished == true &&
+                      onlyUpdatingFields(['viewCount']) &&
+                      request.resource.data.viewCount == resource.data.viewCount + 1;
+
+      // Only admins can delete resources
+      allow delete: if isAdmin();
+    }
+
+
+    // ============================================================================
+    // REPORT VOTES COLLECTION
+    // ============================================================================
+
+    match /reportVotes/{voteId} {
+
+      // Users can read their own votes
+      allow read: if isAuthenticated() &&
+                    resource.data.userId == request.auth.uid;
+
+      // Moderators can read all votes (for analytics)
+      allow read: if isModerator() || isAdmin();
+
+      // Users can create a vote (one per report)
+      allow create: if isAuthenticated() &&
+                      voteId == request.auth.uid + '_' + request.resource.data.reportId &&
+                      request.resource.data.userId == request.auth.uid &&
+                      hasRequiredFields(['userId', 'reportId', 'voteType', 'createdAt']) &&
+                      request.resource.data.voteType in ['upvote', 'support'];
+
+      // Users can delete their own vote
+      allow delete: if isAuthenticated() &&
+                      resource.data.userId == request.auth.uid;
+
+      // No updates allowed (delete and recreate instead)
+      allow update: if false;
+    }
+
+
+    // ============================================================================
+    // AUDIT LOG COLLECTION (SDG 16: Accountability & Transparency)
+    // ============================================================================
+
+    match /auditLog/{logId} {
+
+      // Only moderators and admins can read audit logs
+      allow read: if isModerator() || isAdmin();
+
+      // Only moderators and admins can create audit log entries
+      allow create: if (isModerator() || isAdmin()) &&
+                      hasRequiredFields([
+                        'action', 'resourceType', 'resourceId',
+                        'moderatorId', 'timestamp'
+                      ]) &&
+                      request.resource.data.moderatorId == request.auth.uid &&
+                      request.resource.data.action in ['status_change', 'report_delete', 'user_ban', 'resource_publish'] &&
+                      request.resource.data.resourceType in ['report', 'user', 'resource'];
+
+      // Audit logs cannot be updated or deleted (immutable for accountability)
+      allow update: if false;
+      allow delete: if false;
+    }
+
+
+    // ============================================================================
+    // DENY ALL OTHER ACCESS
+    // ============================================================================
+
+    // Explicitly deny access to any other collections not defined above
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
