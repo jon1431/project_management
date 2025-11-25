@@ -22,11 +22,20 @@ export default function ProfileScreen() {
 
     const loadMyReports = async () => {
         setLoading(true);
-        const result = await fetchMyReports(50);
-        if (result.success) {
-            setReports(result.data || []);
+        try {
+            const result = await fetchMyReports(50);
+            if (result.success) {
+                setReports(result.data || []);
+            } else {
+                console.error("Error loading reports:", result.error);
+                setReports([]);
+            }
+        } catch (error) {
+            console.error("Error loading reports:", error);
+            setReports([]);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const onRefresh = async () => {
@@ -45,8 +54,13 @@ export default function ProfileScreen() {
                     text: "Sign Out",
                     style: "destructive",
                     onPress: async () => {
-                        await signOut();
-                        router.replace("/(auth)/login");
+                        try {
+                            await signOut();
+                            router.replace("/(auth)/login");
+                        } catch (error) {
+                            console.error("Error signing out:", error);
+                            Alert.alert("Error", "Failed to sign out. Please try again.");
+                        }
                     }
                 }
             ]
@@ -63,12 +77,17 @@ export default function ProfileScreen() {
                     text: "Delete",
                     style: "destructive",
                     onPress: async () => {
-                        const result = await deleteMyReport(reportId);
-                        if (result.success) {
-                            Alert.alert("Success", "Report deleted successfully");
-                            await loadMyReports();
-                        } else {
-                            Alert.alert("Error", result.error || "Failed to delete report");
+                        try {
+                            const result = await deleteMyReport(reportId);
+                            if (result.success) {
+                                Alert.alert("Success", "Report deleted successfully");
+                                await loadMyReports();
+                            } else {
+                                Alert.alert("Error", result.error || "Failed to delete report");
+                            }
+                        } catch (error) {
+                            console.error("Error deleting report:", error);
+                            Alert.alert("Error", "An unexpected error occurred");
                         }
                     }
                 }

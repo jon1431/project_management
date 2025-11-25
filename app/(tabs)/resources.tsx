@@ -17,23 +17,40 @@ export default function ResourcesScreen() {
 
     const loadResources = async () => {
         setLoading(true);
-        const result = await fetchResources(selectedCategory);
-        if (result.success) {
-            setResources(result.data || []);
+        try {
+            const result = await fetchResources(selectedCategory);
+            if (result.success) {
+                setResources(result.data || []);
+            } else {
+                console.error("Error loading resources:", result.error);
+                setResources([]);
+            }
+        } catch (error) {
+            console.error("Error loading resources:", error);
+            setResources([]);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const handleResourcePress = async (resource) => {
         // Increment view count
-        await incrementResourceViewCount(resource.id);
+        try {
+            await incrementResourceViewCount(resource.id);
+        } catch (error) {
+            console.error("Error incrementing view count:", error);
+        }
 
         // Open external URL if available
         if (resource.url) {
-            if (resource.type === 'hotline') {
-                Linking.openURL(`tel:${resource.url}`);
-            } else {
-                Linking.openURL(resource.url);
+            try {
+                if (resource.type === 'hotline') {
+                    await Linking.openURL(`tel:${resource.url}`);
+                } else {
+                    await Linking.openURL(resource.url);
+                }
+            } catch (error) {
+                console.error("Error opening URL:", error);
             }
         }
         // For articles and guides without URLs, you'd navigate to a detail screen

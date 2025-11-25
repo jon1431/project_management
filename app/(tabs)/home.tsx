@@ -79,7 +79,11 @@ export default function HomeScreen() {
 
     const handleReportPress = async (report) => {
         // Increment view count
-        await incrementViewCount(report.id);
+        try {
+            await incrementViewCount(report.id);
+        } catch (error) {
+            console.error("Error incrementing view count:", error);
+        }
 
         // TODO: Navigate to report detail screen
         // router.push(`/report/${report.id}`);

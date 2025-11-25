@@ -47,3 +47,4 @@ firestore-debug.log
 # generated native folders
 /ios
 /android
+.env to .gitignore
